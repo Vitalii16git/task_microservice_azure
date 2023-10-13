@@ -15,14 +15,10 @@ const server = http.createServer((req, res) => {
   const requestUrl = url.parse(req.url!, true);
   const pathname = requestUrl.pathname!;
 
-
-  if (req.method === "POST" && pathname === "/upload") {
-    handleFileUpload(req, res);
-
   // enable pathnames /upload, /upload_private
   if (req.method === "POST" && pathname.startsWith("/upload")) {
     handleFileUpload(req, res, pathname);
-    
+
     return;
   }
 
