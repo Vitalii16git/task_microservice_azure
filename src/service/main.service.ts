@@ -5,17 +5,18 @@ import {
   validAccessKeys,
   privateContainerClient,
 } from "../config/azure.config";
-import { pipeline, Readable } from "stream";
+import { pipeline } from "stream";
 import { promisify } from "util";
-import formidable from "formidable";
+import { IncomingForm } from "formidable";
 
 const pipelineAsync = promisify(pipeline);
 
 export const handleFileUpload = async (
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  pathname: string
 ) => {
-  const form = new formidable.IncomingForm();
+  const form = new IncomingForm();
 
   form.parse(req, async (err: Error, _fields: any, files: any) => {
     if (err) {
@@ -23,6 +24,7 @@ export const handleFileUpload = async (
       res.end(JSON.stringify({ error: "File upload failed" }));
       return;
     }
+    console.log(1);
 
     const { file } = files;
 
@@ -30,23 +32,27 @@ export const handleFileUpload = async (
       // Generate a unique file ID
       const fileId = v4();
 
+      let blockBlobClient;
+      console.log(2);
       // Create a BlockBlobClient to store the file in the public container
-      const blockBlobClient = publicContainerClient.getBlockBlobClient(fileId);
+      if (pathname === "/upload") {
+        blockBlobClient = publicContainerClient.getBlockBlobClient(fileId);
+      }
+      console.log(pathname, 3);
+      // Create a BlockBlobClient to store the file in the private container
+      if (pathname === "/upload_private") {
+        blockBlobClient = privateContainerClient.getBlockBlobClient(fileId);
+      }
+      console.log(blockBlobClient, 4);
 
       // Convert the uploadStream promise to a readable stream
-      const uploadStream: any = Readable.from([
-        await (blockBlobClient as any).uploadStream(),
-      ]);
-
+      const uploadStream = await (blockBlobClient as any).uploadStream();
+      console.log(5);
       // Use pipeline to upload the file to Azure Blob Storage
-      try {
-        await pipelineAsync(file, uploadStream);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ fileId }));
-        return;
-      } catch (uploadError) {
-        console.error("Error uploading the file:", uploadError);
-      }
+      await pipelineAsync(file, uploadStream);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ fileId }));
+      return;
     }
 
     // If we reach here, there was an issue with the file upload
@@ -68,39 +74,48 @@ export const servePublicFile = async (
     return;
   }
 
-  // Set appropriate Content-Type based on the file type
   res.writeHead(200);
 
   // Stream the file to the response
-  (blockBlobClient as any).downloadTo(res);
+  const response = await blockBlobClient.download(0);
+
+  // Pipe the file content to the HTTP response
+  response.readableStreamBody!.pipe(res);
+  res.end("Success!");
+  return;
 };
 
 export const servePrivateFile = async (
-  fileAccessKey: string,
+  accessKey: string,
   fileId: string,
   res: http.ServerResponse
 ) => {
-  if (validAccessKeys.has(fileAccessKey)) {
+  if (validAccessKeys.has(accessKey)) {
     // The access key is valid, serve the private file
+    const options = { disableContentMD5Validation: true };
 
-    const blockBlobClient = privateContainerClient.getBlockBlobClient(fileId);
-    const exists = await blockBlobClient.exists();
+    res.setHeader("Content-Type", "application/json");
 
-    if (!exists) {
-      res.writeHead(404);
-      res.end("Not Found");
-      return;
-    }
+    // Use Azure FileService to stream the file to the response
+    const response = await (privateContainerClient as any).getFileToStream(
+      fileId,
+      options
+    );
 
-    // Set appropriate Content-Type based on the file type
-    res.writeHead(200);
+    response.readableStreamBody!.pipe(res);
 
-    // Stream the file to the response
-    (blockBlobClient as any).downloadTo(res);
+    response.on("end", () => {
+      console.log("Success!");
+      res.end("Success!");
+    });
+
     return;
   }
 
   // The access key is not valid, return a 403 Forbidden response
-  res.writeHead(403);
-  res.end("Forbidden");
+  if (!validAccessKeys.has(accessKey)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
 };
