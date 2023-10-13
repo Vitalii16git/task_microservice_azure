@@ -11,7 +11,7 @@ import {
   BlobServiceClient,
   StorageSharedKeyCredential,
 } from "@azure/storage-blob";
-import { IncomingForm } from "formidable";
+import { IncomingForm, Files, Fields } from "formidable";
 import fs from "fs";
 
 export const handleFileUpload = async (
@@ -21,26 +21,27 @@ export const handleFileUpload = async (
 ) => {
   const form = new IncomingForm();
 
-  form.parse(req, async (err: Error, _fields: any, files: any | Buffer) => {
-    if (err) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "File upload failed" }));
-      return;
-    }
-    const { file } = files;
+  form.parse(
+    req,
+    async (err: Error, _fields: Fields, files: Files | Buffer) => {
+      if (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "File upload failed" }));
+        return;
+      }
+      const { file } = files as Files;
 
-    if (file) {
-      // Generate a unique file ID
-      const fileId = v4();
+      if (file) {
+        // Generate a unique file ID
+        const fileId = v4();
 
-      const blockBlobClient: BlockBlobClient =
-        pathname === "/upload"
-          ? publicContainerClient.getBlockBlobClient(fileId)
-          : privateContainerClient.getBlockBlobClient(fileId);
+        const blockBlobClient: BlockBlobClient =
+          pathname === "/upload"
+            ? publicContainerClient.getBlockBlobClient(fileId)
+            : privateContainerClient.getBlockBlobClient(fileId);
 
-      if (!!blockBlobClient) {
         await Promise.all(
-          file.map(async (fileItem: any) => {
+          file.map(async (fileItem) => {
             const readStream = fs.createReadStream(fileItem.filepath);
 
             await blockBlobClient.uploadStream(readStream, fileItem.size);
@@ -49,18 +50,14 @@ export const handleFileUpload = async (
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ fileId }));
+        return;
       }
 
-      if (!blockBlobClient) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Invalid upload path" }));
-      }
-      return;
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "File upload failed" }));
     }
-
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "File upload failed" }));
-  });
+  );
+  return;
 };
 
 export const servePublicFile = async (
@@ -114,10 +111,12 @@ export const servePrivateFile = async (
   const blobClient = containerClient.getBlobClient(fileId);
   const response = await blobClient.download();
 
-  const contentLength: number | any = response.contentLength;
+  const contentLength: number | undefined = response.contentLength;
 
-  res.setHeader("Content-Type", "application/json");
-  res.setHeader("Content-Length", contentLength.toString());
+  if (contentLength !== undefined) {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Length", contentLength.toString());
+  }
 
   response.readableStreamBody!.pipe(res);
 };
