@@ -16,7 +16,6 @@ const server = http.createServer((req, res) => {
   const pathname = requestUrl.pathname!;
 
   if (req.method === "POST" && pathname === "/upload") {
-    // Handle file uploads
     handleFileUpload(req, res);
     return;
   }
