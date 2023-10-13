@@ -5,11 +5,13 @@ import {
   validAccessKeys,
   privateContainerClient,
 } from "../config/azure.config";
-import { pipeline } from "stream";
-import { promisify } from "util";
+import { BlockBlobClient } from "@azure/storage-blob";
+// import { pipeline } from "stream";
+// import { promisify } from "util";
 import { IncomingForm } from "formidable";
+import fs from "fs";
 
-const pipelineAsync = promisify(pipeline);
+// const pipelineAsync = promisify(pipeline);
 
 export const handleFileUpload = async (
   req: http.IncomingMessage,
@@ -32,30 +34,40 @@ export const handleFileUpload = async (
       // Generate a unique file ID
       const fileId = v4();
 
-      let blockBlobClient;
+      let blockBlobClient: BlockBlobClient = null;
       console.log(2);
       // Create a BlockBlobClient to store the file in the public container
       if (pathname === "/upload") {
         blockBlobClient = publicContainerClient.getBlockBlobClient(fileId);
-      }
-      console.log(pathname, 3);
-      // Create a BlockBlobClient to store the file in the private container
-      if (pathname === "/upload_private") {
+      } else if (pathname === "/upload_private") {
         blockBlobClient = privateContainerClient.getBlockBlobClient(fileId);
       }
-      console.log(blockBlobClient, 4);
+      console.log(4);
 
-      // Convert the uploadStream promise to a readable stream
-      const uploadStream = await (blockBlobClient as any).uploadStream();
-      console.log(5);
-      // Use pipeline to upload the file to Azure Blob Storage
-      await pipelineAsync(file, uploadStream);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ fileId }));
+      if (blockBlobClient) {
+        try {
+          console.log("file : ", file.length);
+          const filePromices = file.map(async (fileItem) => {
+            const readStream = fs.createReadStream(fileItem.filepath);
+
+            await blockBlobClient.uploadStream(readStream, fileItem.size);
+          });
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ fileId }));
+        } catch (uploadErr) {
+          console.error(uploadErr);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Failed to upload to Azure" }));
+        }
+      } else {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid upload path" }));
+      }
+
       return;
     }
 
-    // If we reach here, there was an issue with the file upload
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "File upload failed" }));
   });
