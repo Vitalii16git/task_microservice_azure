@@ -23,8 +23,16 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET") {
-    const accessKey: string | any = requestUrl.query["file-access-key"];
-    const fileId: string | any = requestUrl.query["file-unique-id"];
+    const fileAccessQuery = requestUrl.query["file-access-key"];
+    const fileIdQuery = requestUrl.query["file-unique-id"];
+
+    const accessKey: string | undefined = Array.isArray(fileAccessQuery)
+      ? (fileAccessQuery[0] as string)
+      : (fileAccessQuery as string | undefined);
+
+    const fileId: string | undefined = Array.isArray(fileIdQuery)
+      ? (fileIdQuery[0] as string)
+      : (fileIdQuery as string | undefined);
 
     if (accessKey && fileId) {
       // Handle file access with accessKey and fileId
