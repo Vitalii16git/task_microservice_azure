@@ -23,14 +23,17 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET") {
-    const segments = pathname.split("/");
-    if (segments.length === 2) {
-      servePublicFile(segments[1], res);
+    const accessKey: string | any = requestUrl.query["file-access-key"];
+    const fileId: string | any = requestUrl.query["file-unique-id"];
+
+    if (accessKey && fileId) {
+      // Handle file access with accessKey and fileId
+      servePrivateFile(accessKey, fileId, res);
       return;
     }
-
-    if (segments.length === 3) {
-      servePrivateFile(segments[1], segments[2], res);
+    if (fileId && !accessKey) {
+      // Handle public file access with only fileId
+      servePublicFile(fileId, res);
       return;
     }
   }

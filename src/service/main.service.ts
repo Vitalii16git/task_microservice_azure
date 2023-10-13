@@ -4,14 +4,15 @@ import {
   publicContainerClient,
   validAccessKeys,
   privateContainerClient,
+  privateContainerName,
 } from "../config/azure.config";
-import { BlockBlobClient } from "@azure/storage-blob";
-// import { pipeline } from "stream";
-// import { promisify } from "util";
+import {
+  BlockBlobClient,
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+} from "@azure/storage-blob";
 import { IncomingForm } from "formidable";
 import fs from "fs";
-
-// const pipelineAsync = promisify(pipeline);
 
 export const handleFileUpload = async (
   req: http.IncomingMessage,
@@ -20,51 +21,40 @@ export const handleFileUpload = async (
 ) => {
   const form = new IncomingForm();
 
-  form.parse(req, async (err: Error, _fields: any, files: any) => {
+  form.parse(req, async (err: Error, _fields: any, files: any | Buffer) => {
     if (err) {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "File upload failed" }));
       return;
     }
-    console.log(1);
-
     const { file } = files;
 
     if (file) {
       // Generate a unique file ID
       const fileId = v4();
 
-      let blockBlobClient: BlockBlobClient = null;
-      console.log(2);
-      // Create a BlockBlobClient to store the file in the public container
-      if (pathname === "/upload") {
-        blockBlobClient = publicContainerClient.getBlockBlobClient(fileId);
-      } else if (pathname === "/upload_private") {
-        blockBlobClient = privateContainerClient.getBlockBlobClient(fileId);
-      }
-      console.log(4);
+      const blockBlobClient: BlockBlobClient =
+        pathname === "/upload"
+          ? publicContainerClient.getBlockBlobClient(fileId)
+          : privateContainerClient.getBlockBlobClient(fileId);
 
-      if (blockBlobClient) {
-        try {
-          console.log("file : ", file.length);
-          const filePromices = file.map(async (fileItem) => {
+      if (!!blockBlobClient) {
+        await Promise.all(
+          file.map(async (fileItem: any) => {
             const readStream = fs.createReadStream(fileItem.filepath);
 
             await blockBlobClient.uploadStream(readStream, fileItem.size);
-          });
+          })
+        );
 
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ fileId }));
-        } catch (uploadErr) {
-          console.error(uploadErr);
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Failed to upload to Azure" }));
-        }
-      } else {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ fileId }));
+      }
+
+      if (!blockBlobClient) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Invalid upload path" }));
       }
-
       return;
     }
 
@@ -93,8 +83,6 @@ export const servePublicFile = async (
 
   // Pipe the file content to the HTTP response
   response.readableStreamBody!.pipe(res);
-  res.end("Success!");
-  return;
 };
 
 export const servePrivateFile = async (
@@ -102,32 +90,34 @@ export const servePrivateFile = async (
   fileId: string,
   res: http.ServerResponse
 ) => {
-  if (validAccessKeys.has(accessKey)) {
-    // The access key is valid, serve the private file
-    const options = { disableContentMD5Validation: true };
-
-    res.setHeader("Content-Type", "application/json");
-
-    // Use Azure FileService to stream the file to the response
-    const response = await (privateContainerClient as any).getFileToStream(
-      fileId,
-      options
-    );
-
-    response.readableStreamBody!.pipe(res);
-
-    response.on("end", () => {
-      console.log("Success!");
-      res.end("Success!");
-    });
-
-    return;
-  }
-
-  // The access key is not valid, return a 403 Forbidden response
   if (!validAccessKeys.has(accessKey)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
   }
+  const accountName: string = process.env.ACCOUNT_NAME as string;
+
+  const sharedKeyCredential = new StorageSharedKeyCredential(
+    accountName,
+    accessKey
+  );
+
+  const blobServiceClient = new BlobServiceClient(
+    `https://${accountName}.blob.core.windows.net`,
+    sharedKeyCredential
+  );
+  const containerClient =
+    blobServiceClient.getContainerClient(privateContainerName);
+
+  // Serve the private file
+
+  const blobClient = containerClient.getBlobClient(fileId);
+  const response = await blobClient.download();
+
+  const contentLength: number | any = response.contentLength;
+
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Length", contentLength.toString());
+
+  response.readableStreamBody!.pipe(res);
 };
