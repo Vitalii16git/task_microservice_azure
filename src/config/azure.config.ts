@@ -1,10 +1,10 @@
 import { BlobServiceClient } from "@azure/storage-blob";
 
 // Azure Blob Storage configuration
-const connectionString =
-  "DefaultEndpointsProtocol=https;AccountName=teststoragename1232;AccountKey=FH563ICDE8mJxfv3xZFpl7wp+gEZnkS/IGmkBBL5ZNNIrgfDBJdDS0CAANOn1huuZAMZt6E4Ye6d+AStfcV2rw==;EndpointSuffix=core.windows.net";
-const publicContainerName = "publiccontainer";
-const privateContainerName = "privatecontainer";
+const connectionString: string = process.env.CONNECTION_STRING as string;
+const publicContainerName: string = process.env.PUBLIC_CONTAINER as string;
+export const privateContainerName: string = process.env
+  .PRIVATE_CONTAINER as string;
 
 export const validAccessKeys = new Set([
   process.env.VALID_KEY1,
